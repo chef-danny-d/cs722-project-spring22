@@ -1,0 +1,198 @@
+\documentclass{article}
+
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2022
+
+
+% ready for submission
+\usepackage{neurips_2022}
+
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+%     \usepackage[preprint]{neurips_2022}
+
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+%     \usepackage[final]{neurips_2022}
+
+
+% to avoid loading the natbib package, add option nonatbib:
+%    \usepackage[nonatbib]{neurips_2022}
+
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{xcolor}         % colors
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{longtable,multicol,relsize }
+\usepackage{epsfig,amsfonts,amsmath}
+\usepackage{bm}
+%\usepackage{siunitx}
+\usepackage{setspace}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{amsmath}
+\usepackage{commath}
+\usepackage{wasysym}
+\usepackage{bigints}
+\usepackage{setspace}   
+\usepackage[ruled,vlined]{algorithm2e}
+%\usepackage{physics}
+\usepackage{lineno}
+%\usepackage{subcaption}
+%\usepackage[symbol]{footmisc}
+\usepackage{epsfig,amsfonts,amsmath}
+\usepackage{wrapfig}
+\usepackage{breqn,soul}
+\usepackage[section]{placeins}
+\usepackage{mathtools}          %loads amsmath as well
+\usepackage{xcolor}
+
+
+\title{GradNorm: Gradient Normalization for Adaptive
+ Loss Balancing in Deep Multitask Networks}
+
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to LaTeX to determine where to break the
+% lines. Using \AND forces a line break at that point. So, if LaTeX puts 3 of 4
+% authors names on the first line, and the last on the second line, try using
+% \AND instead of \And before the third author name.
+
+
+\author{
+ Gelareh Najmi\thanks{Use footnote for providing further information
+    about author (webpage, alternative address)---\emph{not} for acknowledging
+    funding agencies.} \\
+  Department of Computer Science\\
+  Cranberry-Lemon University\\
+  Pittsburgh, PA 15213 \\
+  \texttt{hippo@cs.cranberry-lemon.edu} \\
+  \And
+ Dániel Bence Papp\thanks{Use footnote for providing further information
+    about author (webpage, alternative address)---\emph{not} for acknowledging
+    funding agencies.} \\
+  Department of Computer Science\\
+  Cranberry-Lemon University\\
+  Pittsburgh, PA 15213 \\
+  \texttt{hippo@cs.cranberry-lemon.edu} \\
+  % examples of more authors
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \AND
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+}
+
+
+\begin{document}
+
+
+\maketitle
+
+
+\begin{abstract}
+Deep multitask networks, in which a single neural network provides many predicted outputs, can outperform single-task networks in terms of speed and performance, but they are difficult to train effectively. We introduce a gradient normalization (GradNorm) approach that dynamically tunes gradient magnitudes to automatically balance training in deep multitask models. GradNorm increases accuracy and decreases overfitting across multiple tasks when compared to single-task networks, static baselines, and other adaptive multitask loss balancing strategies for various network designs, regression and classification tasks, and synthetic and real datasets. Despite just needing a single asymmetry hyperparameter $\alpha$, GradNorm meets or exceeds the performance of exhaustive grid search approaches. As a result, what was formerly a time-consuming search procedure that required exponentially more compute with each additional work may now be completed in a few training cycles, regardless of the number of tasks. Finally, we will show that gradient modification gives us a lot of control over the training dynamics of multitasking networks, and that it might be one of the keys to unlocking multitask learning's full potential.
+\end{abstract}
+\section{Introduction}
+In deep learning, single-task learning in computer vision has had a lot of success, with many single-task models currently performing at or above human accuracies for a wide range of tasks. However, an ultimate visual system for comprehensive scene awareness must be able to do many different perceptual tasks at the same time and quickly, especially in embedded systems like smartphones, wearable devices, and robots/drones, which have restricted computational environments. Multitask learning, in which one model distributes weights across many tasks and produces numerous inferences in one forward pass, can allow such a system (see Fig. \ref{mac}).
+\begin{figure}[h]
+    \centering
+{\includegraphics[width = 0.5\linewidth]{Figures/1.png}}
+\caption{Multitask learning model: Shared-Bottom model}
+    \label{mac}
+\end{figure}
+Not only are such networks scalable, but the shared features within them can also induce more robust regularization and, as a result, improve performance. Multitask networks are challenging to train in general; diverse tasks must be carefully balanced such that network parameters converge to strong common characteristics that are applicable to all tasks. Methods in multitask learning have largely attempted to achieve this balance by manipulating the forward pass of the network (e.g., by constructing explicit statistical relationships between features \cite{long2017learning} or optimizing multitask network architectures \cite{misra2016cross}, but such approaches overlook a key insight: task imbalances obstruct proper training because they manifest as imbalances between backpropagated gradients. During training, for example, a task that is overly dominating will inevitably show its dominance by creating gradients with relatively large magnitudes. By directly altering gradient magnitudes via multitask loss function adjustment, we hope to address such difficulties at their source. In practice, in single task losses $L_{i}$, $L = \sum w_iL_i$, where the sum runs across all T tasks, the multitask loss function is frequently believed to be linear. In our example, we suggest an adaptive technique, which allows us to modify t: $w_i = w_i(t)$ at each training phase (t). Because the backpropagated gradient magnitudes from each job are extremely directly and linearly connected to this linear version of the loss function, it is handy for performing gradient balancing. The difficulty then becomes determining the ideal value for each wi at each training step t that balances each task's contribution for effective model training. We present a simple approach that penalizes the network when backpropagated gradients from any job are too high or too little in order to maximize the weights $w_i(t)$ for gradient balancing. When tasks train at equal rates, the right balance is reached; if task $i$ is training fast, its weight $w_i(t)$ should drop in comparison to other task weights $w_j(t)|_{j\neq i}$ to give other tasks greater effect on training. Our approach is similar to batch normalization \cite{ioffe2015batch}, but with two key differences: (1) we normalize across jobs rather than across data batches, and (2) we utilize rate balance as a desirable goal to guide our normalization. We'll illustrate how gradient normalization (hereinafter referred to as GradNorm) improves network performance while reducing overfitting dramatically. We'll illustrate how gradient normalization (hereinafter referred to as GradNorm) improves network performance while reducing overfitting dramatically. 
+
+\subsection{Literature review}
+
+Multitask learning was developed long before deep learning \cite{caruana1998multitask,bakker2003task}, but deep networks' strong learnt features and good single-task performance have reignited interest. Although our primary application area is computer vision, multitask learning has applications in a variety of other fields, including natural language processing \cite{collobert2008unified,hashimoto2016joint} speech synthesis \cite{seltzer2013multi}, and traffic prediction \cite{huang2014deep}. Multitask learning has previously been investigated in the context of curriculum learning \cite{graves2017automated}, where subsets of tasks are then learned based on local incentives; we look at the opposite approach here, where tasks are simultaneously trained based on global rewards such total loss reduction. Multitask learning is ideally suited to the field of computer vision, as producing numerous reliable predictions is critical for a thorough comprehension of a scene. Deep networks have been utilized to handle a variety of subsets of multiple vision problems, ranging from three-task networks \cite{eigen2015predicting} to far larger subsets \cite{kokkinos2017ubernet}. Single computer vision tasks are frequently phrased as multitask problems, such as segmentation in Mask R-CNN \cite{he2017mask} or object identification in YOLO-9000 \cite{redmon2017yolo9000}. The extensive and large amount of work on explicitly exploiting task interactions within a multitask paradigm is particularly noteworthy. Beyond deep models, clustering methods have shown success \cite{jacob2008clustered}, while deep relationship networks \cite{long2017learning} and cross-stitch networks \cite{misra2016cross} give deep networks the ability to search for meaningful relationships between tasks and to learn which features to share between them. Researchers in \cite{warde2014self} and \cite{lu2017fully} used label groups to search for possible learning architectures. Kendall et al. \cite{kendall2018multi} employs a joint likelihood formulation to estimate task weights based on inherent uncertainty in each task, which is perhaps the most relevant to the current study.
+\section{The GradNorm Algorithm}
+We want to learn the functions $w_i(t)$ for a multitask loss function $L(t) = \sum w_iL_i$ with the following goals: (1) to put multiple task gradient norms on a common scale so we may reason about their relative magnitudes, and (2) to dynamically modify gradient norms so that different tasks train at similar rates. To do this, we must first define the necessary quantities, first in terms of the gradients we will be modifying.
+\begin{itemize}
+\item W: The weights of a subset of the whole network. To economize on computation expenses, W is usually used as the last common layer of weights.
+\item $G^{(i)}_w(t) = 	\lVert \nabla_Ww_i(t)L_i(t)\lVert_2$: with regard to the given weights W, the $L_2$ norm of the gradient of the weighted single-task loss $w_i(t)L_i(t)$.
+\item $\Bar{G}_w(t) = E_{task}[G^{(i)}_w(t)] $: At training period t, the average gradient norm over all tasks. 
+\end{itemize}
+We also establish different training rates for each task i:
+\begin{itemize}
+    \item $\hat{L}_i(t) = \frac{L_i(t)}{L_i(0)} $: the loss ratio for task i at time t.
+    \item $r_i(t)= \frac{\hat{L}_i(t)}{E_{task}[\hat{L}_i(t)]}$: the relative inverse training rate of task i.
+\end{itemize}
+We can now finish our explanation of the GradNorm algorithm with the following definitions in place.
+\section{GradNorm for Gradient Balancing}
+GradNorm should create a standard scale for gradient magnitudes, as well as balance training rates for distinct jobs, as described in the preceding Section. The average gradient norm, $\Bar{G}_w(t)$, is the most popular scale for gradients. It creates a baseline at each timestep t by which we may calculate relative gradient sizes. To rate balance our gradients, we may utilize the relative inverse training rate of task i. To put it another way, the higher the value of $r_i(t)$, the greater the gradient magnitudes for task i should be in order to encourage the task to train faster. As a result, for each job i our desired gradient norm is simply:
+\begin{equation}
+\label{1}
+    G^{(i)}_w(t) \longrightarrow \Bar{G}_w(t) [r_i(t)]^\alpha,
+\end{equation}
+where $\alpha$ is a hyperparameter that has been added.  We update our loss weights $w_i(t)$ to shift gradient norms towards this objective for each task using equation \ref{1}, which provides us a target for each task's gradient norms. GradNorm is then implemented as an $L_1$ loss function $L_{grad}$ that sums the actual and goal gradient norms at each timestep for each task:
+\begin{equation}
+\label{2}
+   L_{grad}(t; w_i(t)) =  \sum_i\lVert G^{(i)}_w(t) - \Bar{G}_w(t) [r_i(t)]^\alpha\lVert_1,
+\end{equation}
+where the total is applied to all T jobs.
+\section{Synthetic Data Generation}
+We create two regression tasks, inspired by Kang et al. \cite{kang2011learning}, and utilize the Pearson correlation of the labels of these two tasks as a quantitative measure of task links. We set the regression model as a mixture of sinusoidal functions as used in \cite{sun2017learning}, rather than the linear functions used in \cite{kang2011learning}, because we are focusing on DNN models. In particular, we create synthetic data as follows:
+\begin{enumerate}
+    \item We produce two orthogonal unit vectors u1,u2 from the input feature dimension d.
+    \begin{equation}
+        {u_1}^Tu_2 = 0, \lVert u_1\lVert_2 = \lVert u_2\lVert_2 = 1 
+    \end{equation}
+    \item Create two weight vectors $w_1,w_2$ with a scale constant $c$ and a correlation value $0\leq p \leq 1$ such that
+    \begin{equation}
+        w_1 = cu_1, w_2 = c\left(pu_1 +\sqrt{(1-p^2)u_2}\right)
+    \end{equation}
+    \item Sample each element of an input data point x at random from $N(0,1)$.
+    \item Create two labels, $y_1$ and $y_2$, for the following two regression tasks:
+        \begin{equation}
+        y_1 = {w_1}^T x + \sum^m_{i=1}sin\left(\alpha_i {w_1}^T x +\beta_i\right) +\epsilon_1\nonumber
+    \end{equation}
+            \begin{equation}
+        y_2 = {w_2}^T x + \sum^m_{i=1}sin\left(\alpha_i {w_2}^T x +\beta_i\right) +\epsilon_2,
+    \end{equation}
+where $\alpha_i$, and $\beta_i$ are given parameters that control the shape of the sinusoidal functions.
+\end{enumerate}
+
+\section{Result}
+\begin{figure}
+    \centering
+\footnotesize{a)}{\includegraphics[width = 0.45\linewidth]{Figures/2.png}}
+\footnotesize{b)}{\includegraphics[width = 0.46\linewidth]{Figures/3.png}}
+\newline
+\footnotesize{c)}{\includegraphics[width = 0.5\linewidth]{Figures/4.png}}
+
+\caption{: Performance of the Shared-Bottom model on synthetic data}
+    \label{rslt}
+\end{figure}
+
+\bibliographystyle{unsrt}
+\bibliography{Ref.bib}
+\end{document}
